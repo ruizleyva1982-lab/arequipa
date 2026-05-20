@@ -139,7 +139,9 @@ def color_faltante(val):
 # SIDEBAR – subir archivo
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/delivery.png", width=64)
+    if os.path.exists("logo.jpg"):
+        st.image("logo.jpg", use_container_width=True)
+    
     st.markdown("## ⚙️ Configuración")
 
     DEFAULT_PATH = "bd.xlsx"

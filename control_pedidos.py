@@ -112,8 +112,8 @@ def construir_resumen(df_ped, df_ent):
     df["PCT"] = ((df["ENTREGADO"] / df["REQUERIMIENTO"]) * 100).clip(upper=100).round(1)
     df["ESTADO"] = pd.cut(
         df["PCT"],
-        bins=[-1, 0, 50, 99.9, 100],
-        labels=["⛔ Sin entregar", "🟡 En proceso", "🔵 Casi completo", "✅ Completo"]
+        bins=[-1, 0, 99.9, 100],
+        labels=["⛔ Sin entregar", "🟡 En proceso", "✅ Completo"]
     )
     return df
 
@@ -263,7 +263,7 @@ st.plotly_chart(fig_global, use_container_width=True)
 st.markdown('<div class="section-title">📋 Detalle por Producto</div>', unsafe_allow_html=True)
 
 # Filtros justo encima de la tabla
-estados_opciones = ["Todos", "⛔ Sin entregar", "🟡 En proceso", "🔵 Casi completo", "✅ Completo"]
+estados_opciones = ["Todos", "⛔ Sin entregar", "🟡 En proceso", "✅ Completo"]
 fcol1, fcol2 = st.columns([1, 2])
 with fcol1:
     filtro_estado = st.selectbox("🏷️ Estado de entrega", estados_opciones, key="filtro_estado")
@@ -306,105 +306,87 @@ st.dataframe(
 st.caption(f"Mostrando {len(df_tabla)} de {len(df_resumen)} productos")
 
 # ─────────────────────────────────────────────
-# SECCIÓN: ENTREGAS POR DÍA
+# SECCIÓN: ENTREGAS POR DÍA – TABLA TIPO MATRIZ
 # ─────────────────────────────────────────────
-st.markdown('<div class="section-title">📅 Entregas por Día</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📅 Entregas por Día – Tabla por Producto</div>', unsafe_allow_html=True)
 
-col_sel1, col_sel2 = st.columns([2, 1])
-with col_sel1:
-    producto_sel = st.selectbox(
-        "Selecciona un producto para ver su detalle diario",
-        options=df_resumen.sort_values("DESCRIPCIÓN")["CÓDIGO"].tolist(),
-        format_func=lambda c: f"{c} – {df_resumen.loc[df_resumen['CÓDIGO']==c,'DESCRIPCIÓN'].values[0][:60]}",
-    )
-with col_sel2:
-    vista = st.radio("Vista", ["Barras", "Acumulado"], horizontal=True)
+# Construir pivot: productos del pedido × fechas de entrega
+ent_pedido = df_ent[df_ent["Número de artículo"].isin(df_ped["CÓDIGO"])].copy()
 
-prod_info = df_resumen[df_resumen["CÓDIGO"] == producto_sel].iloc[0]
-ent_prod  = df_ent[df_ent["Número de artículo"] == producto_sel].copy()
-
-if ent_prod.empty:
-    st.info(f"⚠️ No hay entregas registradas aún para **{prod_info['DESCRIPCIÓN']}**.")
+if ent_pedido.empty:
+    st.info("⚠️ No hay entregas registradas aún.")
 else:
-    ent_dia = (
-        ent_prod.groupby("Fecha de vencimiento")["Cantidad"]
+    ent_pedido["Dia"] = ent_pedido["Fecha de vencimiento"].dt.day.astype(str)
+    
+    pivot = (
+        ent_pedido.groupby(["Número de artículo", "Dia"])["Cantidad"]
         .sum()
         .reset_index()
-        .sort_values("Fecha de vencimiento")
     )
-    ent_dia["Fecha_str"]   = ent_dia["Fecha de vencimiento"].dt.strftime("%d/%m/%Y")
-    ent_dia["Acumulado"]   = ent_dia["Cantidad"].cumsum()
-    ent_dia["Pct_Acum"]    = (ent_dia["Acumulado"] / prod_info["REQUERIMIENTO"] * 100).clip(upper=100)
+    pivot_table = pivot.pivot_table(
+        index="Número de artículo",
+        columns="Dia",
+        values="Cantidad",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    # Ordenar columnas numéricamente
+    pivot_table = pivot_table.reindex(
+        sorted(pivot_table.columns, key=lambda x: int(x)), axis=1
+    )
+    # Agregar descripción
+    desc_map = df_ped.set_index("CÓDIGO")["DESCRIPCIÓN"].to_dict()
+    pivot_table.index = [desc_map.get(c, c) for c in pivot_table.index]
+    pivot_table = pivot_table.sort_index()
 
-    if vista == "Barras":
-        fig_dia = go.Figure()
-        fig_dia.add_trace(go.Bar(
-            x=ent_dia["Fecha_str"],
-            y=ent_dia["Cantidad"],
-            marker_color="#3498db",
-            text=ent_dia["Cantidad"].apply(lambda x: f"{x:,.0f}"),
-            textposition="outside",
-            name="Entregado por día",
-        ))
-        fig_dia.update_layout(
-            xaxis_title="Fecha de entrega",
-            yaxis_title="Cantidad",
-            title=f"Entregas diarias: {prod_info['DESCRIPCIÓN'][:50]}",
-            height=380,
-            margin=dict(t=50, b=40),
-            plot_bgcolor="#f8f9fa",
-        )
-    else:
-        fig_dia = go.Figure()
-        fig_dia.add_trace(go.Scatter(
-            x=ent_dia["Fecha_str"],
-            y=ent_dia["Acumulado"],
-            mode="lines+markers+text",
-            line=dict(color="#2d6a4f", width=3),
-            marker=dict(size=9, color="#2d6a4f"),
-            text=ent_dia["Acumulado"].apply(lambda x: f"{x:,.0f}"),
-            textposition="top center",
-            name="Acumulado",
-        ))
-        fig_dia.add_hline(
-            y=prod_info["REQUERIMIENTO"],
-            line_dash="dot", line_color="#e74c3c", line_width=2,
-            annotation_text=f"Req: {int(prod_info['REQUERIMIENTO']):,}",
-            annotation_font_color="#e74c3c",
-        )
-        fig_dia.update_layout(
-            xaxis_title="Fecha de entrega",
-            yaxis_title="Cantidad acumulada",
-            title=f"Avance acumulado: {prod_info['DESCRIPCIÓN'][:50]}",
-            height=380,
-            margin=dict(t=50, b=40),
-            plot_bgcolor="#f8f9fa",
-        )
+    # Renombrar columnas con el día
+    pivot_table.columns = [f"Día {c}" for c in pivot_table.columns]
 
-    st.plotly_chart(fig_dia, use_container_width=True)
+    # Estilo tipo heatmap con gradiente morado/azul igual a la imagen
+    def estilo_celda(val):
+        if val == 0:
+            return "background-color: #f5f5f5; color: #aaa; text-align: center;"
+        elif val < 30:
+            return "background-color: #c8b8e8; color: #333; text-align: center; font-weight:600;"
+        elif val < 80:
+            return "background-color: #9b7fc8; color: white; text-align: center; font-weight:600;"
+        else:
+            return "background-color: #6a4fa8; color: white; text-align: center; font-weight:700;"
 
-    # Mini tabla de entregas del producto
-    st.markdown("**📄 Detalle de entregas registradas:**")
-    tbl_ent = ent_dia[["Fecha_str", "Cantidad", "Acumulado", "Pct_Acum"]].copy()
-    tbl_ent.columns = ["Fecha", "Cantidad del día", "Acumulado", "% Avance"]
-    st.dataframe(
-        tbl_ent.style.format({
-            "Cantidad del día": "{:,.0f}",
-            "Acumulado": "{:,.0f}",
-            "% Avance": "{:.1f}%",
-        }),
-        use_container_width=True,
-        hide_index=True,
+    def estilo_header(s):
+        return ["background-color: #c0392b; color: white; font-weight:700; text-align:center;"] * len(s)
+
+    styled = (
+        pivot_table.style
+        .applymap(estilo_celda)
+        .apply(estilo_header, axis=1)
+        .format("{:,.0f}")
+        .set_table_styles([
+            {"selector": "th.col_heading", "props": [
+                ("background-color", "#c0392b"),
+                ("color", "white"),
+                ("font-weight", "bold"),
+                ("text-align", "center"),
+                ("font-size", "0.85rem"),
+            ]},
+            {"selector": "th.row_heading", "props": [
+                ("background-color", "#c0392b"),
+                ("color", "white"),
+                ("font-weight", "bold"),
+                ("text-align", "left"),
+                ("font-size", "0.82rem"),
+                ("min-width", "220px"),
+            ]},
+            {"selector": "td", "props": [
+                ("font-size", "0.85rem"),
+                ("min-width", "48px"),
+            ]},
+        ])
     )
 
-    # Resumen rápido del producto seleccionado
-    col_a, col_b, col_c, col_d = st.columns(4)
-    col_a.metric("Requerido",  f"{int(prod_info['REQUERIMIENTO']):,}")
-    col_b.metric("Entregado",  f"{int(prod_info['ENTREGADO']):,}")
-    col_c.metric("Faltante",   f"{int(prod_info['FALTANTE']):,}",
-                 delta=f"-{int(prod_info['FALTANTE']):,}" if prod_info["FALTANTE"] > 0 else "Completo",
-                 delta_color="inverse")
-    col_d.metric("Avance",     f"{prod_info['PCT']:.1f}%")
+    st.dataframe(styled, use_container_width=True, height=min(600, 40 + len(pivot_table) * 36))
+
+    st.caption(f"Mostrando {len(pivot_table)} productos · Días del mes con entregas registradas")
 
 # ─────────────────────────────────────────────
 # GRÁFICO DONA – ESTADO GENERAL
@@ -416,7 +398,7 @@ fig_dona = go.Figure(go.Pie(
     labels=estado_counts.index.tolist(),
     values=estado_counts.values.tolist(),
     hole=0.55,
-    marker_colors=["#27ae60", "#3498db", "#e67e22", "#e74c3c"],
+    marker_colors=["#27ae60", "#e67e22", "#e74c3c"],
     textinfo="label+percent",
     hovertemplate="<b>%{label}</b><br>Productos: %{value}<br>%{percent}<extra></extra>",
 ))

@@ -288,8 +288,8 @@ df_display["FALTANTE"]      = df_display["FALTANTE"].apply(lambda x: f"{int(x):,
 
 st.dataframe(
     df_tabla[cols_show].style
-        .applymap(color_pct, subset=["PCT"])
-        .applymap(color_faltante, subset=["FALTANTE"])
+        .map(color_pct, subset=["PCT"])
+        .map(color_faltante, subset=["FALTANTE"])
         .format({
             "REQUERIMIENTO": "{:,.0f}",
             "ENTREGADO": "{:,.0f}",

@@ -358,7 +358,7 @@ else:
 
     styled = (
         pivot_table.style
-        .applymap(estilo_celda)
+        .map(estilo_celda)
         .apply(estilo_header, axis=1)
         .format("{:,.0f}")
         .set_table_styles([

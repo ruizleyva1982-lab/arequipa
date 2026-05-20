@@ -190,8 +190,8 @@ df_resumen = construir_resumen(df_ped, df_ent)
 # ─────────────────────────────────────────────
 st.markdown(f"""
 <div class="main-header">
-    <h1>📦 Control de Pedidos</h1>
-    <p>Maria Almenara · Seguimiento de entregas en tiempo real</p>
+    <h1>📦 Control de Entregas MA AREQUIPA</h1>
+    <p>Seguimiento de productos entregadosl</p>
 </div>
 """, unsafe_allow_html=True)
 

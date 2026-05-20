@@ -220,43 +220,6 @@ for col, color, val, lbl in kpis:
     </div>""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# GRÁFICO GLOBAL – AVANCE TOTAL
-# ─────────────────────────────────────────────
-st.markdown('<div class="section-title">📊 Avance Global por Producto</div>', unsafe_allow_html=True)
-
-df_plot = df_resumen.sort_values("PCT", ascending=True)
-colors_bar = df_plot["PCT"].apply(
-    lambda x: "#27ae60" if x >= 100 else ("#3498db" if x >= 50 else ("#e67e22" if x > 0 else "#e74c3c"))
-)
-
-fig_global = go.Figure()
-fig_global.add_trace(go.Bar(
-    x=df_plot["PCT"],
-    y=df_plot["DESCRIPCIÓN"].str[:45],
-    orientation="h",
-    marker_color=colors_bar,
-    text=df_plot["PCT"].apply(lambda x: f"{x}%"),
-    textposition="outside",
-    hovertemplate=(
-        "<b>%{y}</b><br>"
-        "Avance: %{x}%<br>"
-        "<extra></extra>"
-    ),
-))
-fig_global.add_vline(x=100, line_dash="dot", line_color="#1e3a5f", line_width=1.5,
-                     annotation_text="100%", annotation_font_color="#1e3a5f")
-fig_global.update_layout(
-    xaxis=dict(range=[0, 115], title="% Entregado", ticksuffix="%"),
-    yaxis=dict(title=""),
-    height=max(400, len(df_plot) * 26),
-    margin=dict(l=10, r=60, t=20, b=30),
-    paper_bgcolor="white",
-    plot_bgcolor="#f8f9fa",
-    showlegend=False,
-)
-st.plotly_chart(fig_global, use_container_width=True)
-
-# ─────────────────────────────────────────────
 # TABLA DETALLE POR PRODUCTO
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-title">📋 Detalle por Producto</div>', unsafe_allow_html=True)

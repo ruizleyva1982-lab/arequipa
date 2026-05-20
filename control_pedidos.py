@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 from datetime import datetime
 import os
 
@@ -318,29 +317,36 @@ if ent_pedido.empty:
 else:
     ent_pedido["Dia"] = ent_pedido["Fecha de vencimiento"].dt.day.astype(str)
     
+    ent_pedido["Fecha_col"] = ent_pedido["Fecha de vencimiento"].dt.strftime("%d/%m/%Y")
+
     pivot = (
-        ent_pedido.groupby(["Número de artículo", "Dia"])["Cantidad"]
+        ent_pedido.groupby(["Número de artículo", "Fecha_col"])["Cantidad"]
         .sum()
         .reset_index()
     )
+    # Orden cronológico de fechas
+    fechas_ordenadas = (
+        ent_pedido[["Fecha de vencimiento", "Fecha_col"]]
+        .drop_duplicates()
+        .sort_values("Fecha de vencimiento")["Fecha_col"]
+        .tolist()
+    )
     pivot_table = pivot.pivot_table(
         index="Número de artículo",
-        columns="Dia",
+        columns="Fecha_col",
         values="Cantidad",
         aggfunc="sum",
         fill_value=0,
     )
-    # Ordenar columnas numéricamente
-    pivot_table = pivot_table.reindex(
-        sorted(pivot_table.columns, key=lambda x: int(x)), axis=1
-    )
-    # Agregar descripción
+    # Reordenar columnas cronológicamente
+    cols_ord = [f for f in fechas_ordenadas if f in pivot_table.columns]
+    pivot_table = pivot_table[cols_ord]
+
+    # Agregar descripción como índice
     desc_map = df_ped.set_index("CÓDIGO")["DESCRIPCIÓN"].to_dict()
     pivot_table.index = [desc_map.get(c, c) for c in pivot_table.index]
     pivot_table = pivot_table.sort_index()
-
-    # Renombrar columnas con el día
-    pivot_table.columns = [f"Día {c}" for c in pivot_table.columns]
+    pivot_table.columns.name = "Fecha"
 
     # Estilo tipo heatmap con gradiente morado/azul igual a la imagen
     def estilo_celda(val):
@@ -408,43 +414,9 @@ fig_dona.add_annotation(
     font=dict(size=18, color="#1e3a5f"),
 )
 fig_dona.update_layout(height=340, margin=dict(t=20, b=20), showlegend=True)
-
-col_dona, col_heat = st.columns([1, 2])
+col_dona, _ = st.columns([1, 1])
 with col_dona:
     st.plotly_chart(fig_dona, use_container_width=True)
-
-# Heatmap de entregas por producto por día
-with col_heat:
-    st.markdown("**📆 Mapa de calor – Entregas por día**")
-    pivot = (
-        df_ent.groupby(["Número de artículo", "Fecha de vencimiento"])["Cantidad"]
-        .sum()
-        .reset_index()
-    )
-    pivot["Fecha_str"] = pivot["Fecha de vencimiento"].dt.strftime("%d/%m")
-    # Filtrar solo los del pedido
-    pivot = pivot[pivot["Número de artículo"].isin(df_ped["CÓDIGO"])]
-    pivot_table = pivot.pivot_table(
-        index="Número de artículo", columns="Fecha_str", values="Cantidad", aggfunc="sum", fill_value=0
-    )
-
-    if not pivot_table.empty:
-        fig_heat = px.imshow(
-            pivot_table,
-            aspect="auto",
-            color_continuous_scale="YlGn",
-            labels={"color": "Cantidad"},
-        )
-        fig_heat.update_layout(
-            height=340,
-            margin=dict(t=10, b=10, l=10, r=10),
-            xaxis_title="Fecha",
-            yaxis_title="Código",
-            coloraxis_showscale=True,
-        )
-        st.plotly_chart(fig_heat, use_container_width=True)
-    else:
-        st.info("Sin datos para mostrar en el mapa de calor.")
 
 # ─────────────────────────────────────────────
 # FOOTER

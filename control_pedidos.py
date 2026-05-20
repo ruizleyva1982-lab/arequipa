@@ -9,7 +9,7 @@ import os
 # CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Control de Pedidos",
+    page_title="Entregas hacia MA AREQUIPA",
     page_icon="📦",
     layout="wide",
 )

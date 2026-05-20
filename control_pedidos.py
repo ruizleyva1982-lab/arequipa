@@ -9,7 +9,7 @@ import os
 # CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="Entregas hacia MA AREQUIPA",
+    page_title="Control de Pedidos",
     page_icon="📦",
     layout="wide",
 )
@@ -169,14 +169,6 @@ with st.sidebar:
     dt_mod = datetime.fromtimestamp(mtime)
 
     st.markdown("---")
-    st.markdown("### 📅 Filtros")
-    # Filtro de estado (se llenará tras cargar datos)
-    estados_opciones = ["Todos", "⛔ Sin entregar", "🟡 En proceso", "🔵 Casi completo", "✅ Completo"]
-    filtro_estado = st.selectbox("Estado de entrega", estados_opciones)
-
-    buscar = st.text_input("🔍 Buscar producto", placeholder="Código o descripción")
-
-    st.markdown("---")
     st.caption("© Maria Almenara – Control de Pedidos")
 
 # ─────────────────────────────────────────────
@@ -190,8 +182,8 @@ df_resumen = construir_resumen(df_ped, df_ent)
 # ─────────────────────────────────────────────
 st.markdown(f"""
 <div class="main-header">
-    <h1>📦 Control de Entregas MA AREQUIPA</h1>
-    <p>Seguimiento de productos entregados</p>
+    <h1>📦 Control de Pedidos</h1>
+    <p>Maria Almenara · Seguimiento de entregas en tiempo real</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -269,6 +261,14 @@ st.plotly_chart(fig_global, use_container_width=True)
 # TABLA DETALLE POR PRODUCTO
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-title">📋 Detalle por Producto</div>', unsafe_allow_html=True)
+
+# Filtros justo encima de la tabla
+estados_opciones = ["Todos", "⛔ Sin entregar", "🟡 En proceso", "🔵 Casi completo", "✅ Completo"]
+fcol1, fcol2 = st.columns([1, 2])
+with fcol1:
+    filtro_estado = st.selectbox("🏷️ Estado de entrega", estados_opciones, key="filtro_estado")
+with fcol2:
+    buscar = st.text_input("🔍 Buscar por código o descripción", placeholder="Ej: M1020110 o BROWNIE", key="buscar")
 
 # Aplicar filtros
 df_tabla = df_resumen.copy()

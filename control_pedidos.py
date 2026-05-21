@@ -181,8 +181,8 @@ df_resumen = construir_resumen(df_ped, df_ent)
 # ─────────────────────────────────────────────
 st.markdown(f"""
 <div class="main-header">
-    <h1>📦 Control de Entrega de Productos MA AREQUIPA</h1>
-    <p>Seguimiento de entregas por día</p>
+    <h1>📦 Control de Pedidos</h1>
+    <p>Maria Almenara · Seguimiento de entregas en tiempo real</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -314,13 +314,13 @@ else:
     # Estilo tipo heatmap con gradiente morado/azul igual a la imagen
     def estilo_celda(val):
         if val == 0:
-            return "background-color: #f5f5f5; color: #aaa; text-align: center;"
+            return "background-color: white; color: #ccc; text-align: center;"
         elif val < 30:
-            return "background-color: #c8b8e8; color: #333; text-align: center; font-weight:600;"
+            return "background-color: #fde8d8; color: #c0392b; text-align: center; font-weight:600;"
         elif val < 80:
-            return "background-color: #9b7fc8; color: white; text-align: center; font-weight:600;"
+            return "background-color: #f5b8a0; color: #922b21; text-align: center; font-weight:600;"
         else:
-            return "background-color: #6a4fa8; color: white; text-align: center; font-weight:700;"
+            return "background-color: #e8896e; color: #7b241c; text-align: center; font-weight:700;"
 
     def estilo_header(s):
         return ["background-color: #c0392b; color: white; font-weight:700; text-align:center;"] * len(s)

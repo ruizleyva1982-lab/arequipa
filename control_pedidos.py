@@ -311,47 +311,55 @@ else:
     pivot_table = pivot_table.sort_index()
     pivot_table.columns.name = "Fecha"
 
-    # Estilo tipo heatmap con gradiente morado/azul igual a la imagen
-    def estilo_celda(val):
-        if val == 0:
-            return "background-color: white; color: #ccc; text-align: center;"
-        else:
-            return "background-color: #d4edda; color: #1a6b35; text-align: center; font-weight:600;"
+    # Construir tabla HTML directamente
+    fechas = pivot_table.columns.tolist()
+    html = """
+    <style>
+    .tabla-entregas { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    .tabla-entregas th {
+        background-color: #c0392b; color: white; font-weight: bold;
+        padding: 8px 12px; text-align: center; border: 1px solid #ddd;
+    }
+    .tabla-entregas th.col-prod {
+        text-align: left; min-width: 220px;
+    }
+    .tabla-entregas td.col-prod {
+        padding: 7px 10px; border: 1px solid #eee;
+        background: white; color: #333; font-size: 0.82rem;
+    }
+    .tabla-entregas td.celda-cero {
+        background: white; color: #ccc; text-align: center;
+        padding: 7px 10px; border: 1px solid #eee;
+    }
+    .tabla-entregas td.celda-valor {
+        background: #d4edda; color: #1a6b35; text-align: center;
+        font-weight: 600; padding: 7px 10px; border: 1px solid #eee;
+    }
+    .tabla-entregas tr:nth-child(even) td.col-prod { background: #f9f9f9; }
+    </style>
+    <div style="overflow-x:auto; max-height:600px; overflow-y:auto;">
+    <table class="tabla-entregas">
+    <thead><tr>
+    <th class="col-prod">PRODUCTO</th>
+    """
+    for f in fechas:
+        html += f"<th>{f}</th>"
+    html += "</tr></thead><tbody>"
 
-    def estilo_header(s):
-        return ["background-color: #c0392b; color: white; font-weight:700; text-align:center;"] * len(s)
+    for prod, row in pivot_table.iterrows():
+        html += f"<tr><td class='col-prod'>{prod}</td>"
+        for f in fechas:
+            val = int(row[f])
+            if val == 0:
+                html += f"<td class='celda-cero'>0</td>"
+            else:
+                html += f"<td class='celda-valor'>{val:,}</td>"
+        html += "</tr>"
 
-    styled = (
-        pivot_table.style
-        .map(estilo_celda)
-        .apply(estilo_header, axis=1)
-        .format("{:,.0f}")
-        .set_table_styles([
-            {"selector": "th.col_heading", "props": [
-                ("background-color", "#c0392b"),
-                ("color", "white"),
-                ("font-weight", "bold"),
-                ("text-align", "center"),
-                ("font-size", "0.85rem"),
-            ]},
-            {"selector": "th.row_heading", "props": [
-                ("background-color", "#c0392b"),
-                ("color", "white"),
-                ("font-weight", "bold"),
-                ("text-align", "left"),
-                ("font-size", "0.82rem"),
-                ("min-width", "220px"),
-            ]},
-            {"selector": "td", "props": [
-                ("font-size", "0.85rem"),
-                ("min-width", "48px"),
-            ]},
-        ])
-    )
+    html += "</tbody></table></div>"
 
-    st.dataframe(styled, use_container_width=True, height=min(600, 40 + len(pivot_table) * 36))
-
-    st.caption(f"Mostrando {len(pivot_table)} productos · Días del mes con entregas registradas")
+    st.markdown(html, unsafe_allow_html=True)
+    st.caption(f"Mostrando {len(pivot_table)} productos · Fechas con entregas registradas")
 
 # ─────────────────────────────────────────────
 # GRÁFICO DONA – ESTADO GENERAL

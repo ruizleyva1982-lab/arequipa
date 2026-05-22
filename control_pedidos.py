@@ -315,12 +315,8 @@ else:
     def estilo_celda(val):
         if val == 0:
             return "background-color: white; color: #ccc; text-align: center;"
-        elif val < 30:
-            return "background-color: #fde8d8; color: #c0392b; text-align: center; font-weight:600;"
-        elif val < 80:
-            return "background-color: #f5b8a0; color: #922b21; text-align: center; font-weight:600;"
         else:
-            return "background-color: #e8896e; color: #7b241c; text-align: center; font-weight:700;"
+            return "background-color: #d4edda; color: #1a6b35; text-align: center; font-weight:600;"
 
     def estilo_header(s):
         return ["background-color: #c0392b; color: white; font-weight:700; text-align:center;"] * len(s)

@@ -262,7 +262,7 @@ st.dataframe(
             "FECHA PEDIDO": lambda x: x.strftime("%d/%m/%Y") if hasattr(x, "strftime") else x,
         }),
     use_container_width=True,
-    height=420,
+    height=630,
 )
 
 st.caption(f"Mostrando {len(df_tabla)} de {len(df_resumen)} productos")

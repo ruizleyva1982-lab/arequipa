@@ -107,6 +107,8 @@ def construir_resumen(df_ped, df_ent):
     )
     df = df_ped.merge(entregado, on="CÓDIGO", how="left")
     df["ENTREGADO"] = df["ENTREGADO"].fillna(0)
+    # Limitar ENTREGADO al máximo del REQUERIMIENTO (evita superar 100%)
+    df["ENTREGADO"] = df[["ENTREGADO", "REQUERIMIENTO"]].min(axis=1)
     df["FALTANTE"] = (df["REQUERIMIENTO"] - df["ENTREGADO"]).clip(lower=0)
     df["PCT"] = ((df["ENTREGADO"] / df["REQUERIMIENTO"]) * 100).clip(upper=100).round(1)
     df["ESTADO"] = pd.cut(

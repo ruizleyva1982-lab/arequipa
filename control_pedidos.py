@@ -226,9 +226,6 @@ kpis = [
     (c4, "#e74c3c", f"{total_falt:,}", "Unidades faltantes"),
     (c5, "#27ae60", f"{pct_global}%", f"Productos completos ({completos}/{total_prod})"),
 ]
-    (c4, "#e74c3c", f"{total_falt:,}", "Unidades faltantes"),
-    (c5, "#27ae60", f"{pct_global}%", "Avance global"),
-]
 for col, color, val, lbl in kpis:
     col.markdown(f"""
     <div class="kpi-card" style="border-top-color:{color}">

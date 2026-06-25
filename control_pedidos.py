@@ -81,8 +81,20 @@ st.markdown("""
 @st.cache_data(show_spinner=False)
 def cargar_datos(filepath: str, mtime: float):
     """Lee el Excel y retorna los dos dataframes + metadatos."""
-    df_ped = pd.read_excel(filepath, sheet_name="Pedido")
-    df_ent = pd.read_excel(filepath, sheet_name="Entregas")
+    xl = pd.ExcelFile(filepath)
+    hojas = {h.strip().lower(): h for h in xl.sheet_names}
+
+    # Buscar hoja Pedido
+    nombre_ped = next((v for k, v in hojas.items() if "pedido" in k), None)
+    nombre_ent = next((v for k, v in hojas.items() if "entrega" in k), None)
+
+    if not nombre_ped:
+        raise ValueError(f"No se encontró hoja 'Pedido'. Hojas disponibles: {xl.sheet_names}")
+    if not nombre_ent:
+        raise ValueError(f"No se encontró hoja 'Entregas'. Hojas disponibles: {xl.sheet_names}")
+
+    df_ped = pd.read_excel(filepath, sheet_name=nombre_ped)
+    df_ent = pd.read_excel(filepath, sheet_name=nombre_ent)
 
     df_ped.columns = df_ped.columns.str.strip()
     df_ent.columns = df_ent.columns.str.strip()
@@ -203,14 +215,17 @@ total_prod   = len(df_resumen)
 total_req    = int(df_resumen["REQUERIMIENTO"].sum())
 total_ent    = int(df_resumen["ENTREGADO"].sum())
 total_falt   = int(df_resumen["FALTANTE"].sum())
-pct_global   = round(total_ent / total_req * 100, 1) if total_req > 0 else 0
 completos    = int((df_resumen["PCT"] >= 100).sum())
+pct_global   = round(completos / total_prod * 100, 1) if total_prod > 0 else 0
 
 c1, c2, c3, c4, c5 = st.columns(5)
 kpis = [
     (c1, "#1e3a5f", f"{total_prod}", "Productos en pedido"),
     (c2, "#2d6a4f", f"{total_req:,}", "Unidades requeridas"),
     (c3, "#3498db", f"{total_ent:,}", "Unidades entregadas"),
+    (c4, "#e74c3c", f"{total_falt:,}", "Unidades faltantes"),
+    (c5, "#27ae60", f"{pct_global}%", f"Productos completos ({completos}/{total_prod})"),
+]
     (c4, "#e74c3c", f"{total_falt:,}", "Unidades faltantes"),
     (c5, "#27ae60", f"{pct_global}%", "Avance global"),
 ]

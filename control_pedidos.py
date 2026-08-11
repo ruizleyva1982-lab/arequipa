@@ -3,9 +3,11 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import os
+import io
+from supabase import create_client
 
 # ─────────────────────────────────────────────
-# CONFIG
+# CONFIG & ESTILOS
 # ─────────────────────────────────────────────
 st.set_page_config(
     page_title="Control de Pedidos",
@@ -13,9 +15,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# ─────────────────────────────────────────────
-# ESTILOS
-# ─────────────────────────────────────────────
 st.markdown("""
 <style>
     .main-header {
@@ -49,11 +48,6 @@ st.markdown("""
     .kpi-card .kpi-val  { font-size: 2rem; font-weight: 700; }
     .kpi-card .kpi-lbl  { font-size: 0.78rem; color: #666; margin-top: 2px; }
 
-    .product-table th {
-        background: #1e3a5f !important;
-        color: white !important;
-    }
-
     .stButton > button {
         background: #2d6a4f;
         color: white;
@@ -76,60 +70,106 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# FUNCIONES
+# CONFIGURACIÓN SUPABASE & BUCKET
+# ─────────────────────────────────────────────
+BUCKET_NAME = "AQP"
+FILE_NAME = "bd.xlsx"
+
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+try:
+    supabase = init_supabase()
+except Exception as e:
+    st.error("⚠️ Error de conexión con Supabase. Verifica tus credenciales en `.streamlit/secrets.toml`.")
+    st.stop()
+
+def descargar_de_supabase():
+    """Descarga el Excel activo desde Supabase Storage (Bucket AQP)."""
+    try:
+        data = supabase.storage.from_(BUCKET_NAME).download(FILE_NAME)
+        return io.BytesIO(data)
+    except Exception:
+        if os.path.exists("bd.xlsx"):
+            with open("bd.xlsx", "rb") as f:
+                return io.BytesIO(f.read())
+        return None
+
+def subir_a_supabase(file_bytes):
+    """Guarda/Sobrescribe el Excel en Supabase Storage de forma persistente."""
+    supabase.storage.from_(BUCKET_NAME).upload(
+        path=FILE_NAME,
+        file=file_bytes,
+        file_options={"upsert": "true"}
+    )
+
+# ─────────────────────────────────────────────
+# FUNCIONES DE PROCESAMIENTO
 # ─────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def cargar_datos(filepath: str, mtime: float):
-    """Lee el Excel y retorna los dos dataframes + metadatos."""
-    xl = pd.ExcelFile(filepath)
+def cargar_datos(file_buffer):
+    xl = pd.ExcelFile(file_buffer)
     hojas = {h.strip().lower(): h for h in xl.sheet_names}
 
-    # Buscar hoja Pedido
     nombre_ped = next((v for k, v in hojas.items() if "pedido" in k), None)
     nombre_ent = next((v for k, v in hojas.items() if "entrega" in k), None)
 
-    if not nombre_ped:
-        raise ValueError(f"No se encontró hoja 'Pedido'. Hojas disponibles: {xl.sheet_names}")
-    if not nombre_ent:
-        raise ValueError(f"No se encontró hoja 'Entregas'. Hojas disponibles: {xl.sheet_names}")
+    if not nombre_ped or not nombre_ent:
+        raise ValueError(f"No se encontraron las hojas 'Pedido' y 'Entregas'. Hojas presentes: {xl.sheet_names}")
 
-    df_ped = pd.read_excel(filepath, sheet_name=nombre_ped)
-    df_ent = pd.read_excel(filepath, sheet_name=nombre_ent)
+    df_ped = pd.read_excel(file_buffer, sheet_name=nombre_ped)
+    df_ent = pd.read_excel(file_buffer, sheet_name=nombre_ent)
 
     df_ped.columns = df_ped.columns.str.strip()
     df_ent.columns = df_ent.columns.str.strip()
 
-    df_ped["FECHA PEDIDO"] = pd.to_datetime(df_ped["FECHA PEDIDO"])
-    df_ent["Fecha de vencimiento"] = pd.to_datetime(df_ent["Fecha de vencimiento"])
+    # Normalización de códigos a String sin espacios
+    df_ped["CÓDIGO"] = df_ped["CÓDIGO"].astype(str).str.strip()
+    df_ent["Número de artículo"] = df_ent["Número de artículo"].astype(str).str.strip()
 
-    # Solo entregas de productos que están en el pedido
+    df_ped["FECHA PEDIDO"] = pd.to_datetime(df_ped["FECHA PEDIDO"])
+    
+    col_fecha_ent = "Fecha de vencimiento" if "Fecha de vencimiento" in df_ent.columns else "FECHA_ENTREGA"
+    df_ent["Fecha_venc"] = pd.to_datetime(df_ent[col_fecha_ent])
+
     codigos_pedido = df_ped["CÓDIGO"].unique()
     df_ent_filtrado = df_ent[df_ent["Número de artículo"].isin(codigos_pedido)].copy()
 
     return df_ped, df_ent_filtrado
 
-
 def construir_resumen(df_ped, df_ent):
-    """DataFrame consolidado por producto con totales y porcentaje."""
+    # Agrupar Pedido por CÓDIGO para evitar duplicaciones si hay múltiples filas del mismo artículo
+    df_ped_grouped = df_ped.groupby("CÓDIGO").agg({
+        "DESCRIPCIÓN": "first",
+        "UMI": "first",
+        "REQUERIMIENTO": "sum",
+        "FECHA PEDIDO": "min"
+    }).reset_index()
+
     entregado = (
         df_ent.groupby("Número de artículo")["Cantidad"]
         .sum()
         .reset_index()
-        .rename(columns={"Número de artículo": "CÓDIGO", "Cantidad": "ENTREGADO"})
+        .rename(columns={"Número de artículo": "CÓDIGO", "Cantidad": "ENTREGADO_REAL"})
     )
-    df = df_ped.merge(entregado, on="CÓDIGO", how="left")
-    df["ENTREGADO"] = df["ENTREGADO"].fillna(0)
-    # Limitar ENTREGADO al máximo del REQUERIMIENTO (evita superar 100%)
-    df["ENTREGADO"] = df[["ENTREGADO", "REQUERIMIENTO"]].min(axis=1)
-    df["FALTANTE"] = (df["REQUERIMIENTO"] - df["ENTREGADO"]).clip(lower=0)
-    df["PCT"] = ((df["ENTREGADO"] / df["REQUERIMIENTO"]) * 100).clip(upper=100).round(1)
+    
+    df = df_ped_grouped.merge(entregado, on="CÓDIGO", how="left")
+    df["ENTREGADO_REAL"] = df["ENTREGADO_REAL"].fillna(0)
+    
+    # ENTREGADO para porcentaje limitado al 100% de cumplimiento
+    df["ENTREGADO"] = df[["ENTREGADO_REAL", "REQUERIMIENTO"]].min(axis=1)
+    df["FALTANTE"] = (df["REQUERIMIENTO"] - df["ENTREGADO_REAL"]).clip(lower=0)
+    df["PCT"] = ((df["ENTREGADO_REAL"] / df["REQUERIMIENTO"]) * 100).round(1)
+    
     df["ESTADO"] = pd.cut(
         df["PCT"],
-        bins=[-1, 0, 99.9, 100],
+        bins=[-1, 0, 99.9, float('inf')],
         labels=["⛔ Sin entregar", "🟡 En proceso", "✅ Completo"]
     )
     return df
-
 
 def color_pct(val):
     if val == 0:
@@ -141,15 +181,13 @@ def color_pct(val):
     else:
         return "color: #27ae60; font-weight:700"
 
-
 def color_faltante(val):
     if val > 0:
         return "color: #e74c3c"
     return "color: #27ae60"
 
-
 # ─────────────────────────────────────────────
-# SIDEBAR – subir archivo
+# SIDEBAR – ACTUALIZAR ARCHIVO
 # ─────────────────────────────────────────────
 with st.sidebar:
     if os.path.exists("logo.jpg"):
@@ -157,63 +195,49 @@ with st.sidebar:
     
     st.markdown("## ⚙️ Configuración")
 
-    DEFAULT_PATH = "bd.xlsx"
-
     uploaded = st.file_uploader(
-        "📂 Actualizar Excel",
+        "📂 Actualizar Excel en Nube",
         type=["xlsx"],
-        help="Sube tu bd.xlsx actualizado para refrescar la app.",
+        help="Sube tu bd.xlsx. Se guardará permanentemente en Supabase (Bucket AQP).",
     )
 
     if uploaded:
-        with open(DEFAULT_PATH, "wb") as f:
-            f.write(uploaded.read())
+        bytes_data = uploaded.getvalue()
+        subir_a_supabase(bytes_data)
         st.cache_data.clear()
-        st.success("✅ Archivo actualizado")
-
-    # Determinar qué archivo usar
-    if os.path.exists(DEFAULT_PATH):
-        FILEPATH = DEFAULT_PATH
-    else:
-        st.warning("Sube tu archivo bd.xlsx para comenzar.")
-        st.stop()
-
-    mtime = os.path.getmtime(FILEPATH)
-    dt_mod = datetime.fromtimestamp(mtime)
+        st.success("✅ Archivo guardado permanentemente en Supabase (Bucket: AQP)")
 
     st.markdown("---")
     st.caption("© Maria Almenara – Control de Pedidos")
 
 # ─────────────────────────────────────────────
-# CARGAR DATOS
+# DESCARGA Y PROCESAMIENTO
 # ─────────────────────────────────────────────
-df_ped, df_ent = cargar_datos(FILEPATH, mtime)
+excel_buffer = descargar_de_supabase()
+
+if not excel_buffer:
+    st.warning("⚠️ No se encontró el archivo `bd.xlsx` en la nube. Por favor sube uno desde la barra lateral.")
+    st.stop()
+
+df_ped, df_ent = cargar_datos(excel_buffer)
 df_resumen = construir_resumen(df_ped, df_ent)
 
 # ─────────────────────────────────────────────
 # HEADER
 # ─────────────────────────────────────────────
-st.markdown(f"""
+st.markdown("""
 <div class="main-header">
     <h1>📦 Control de Pedidos</h1>
-    <p>Maria Almenara · Seguimiento de entregas en tiempo real</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Banner de actualización
-st.markdown(f"""
-<div class="update-banner">
-    🕐 <b>Última actualización del archivo:</b>&nbsp; {dt_mod.strftime("%d/%m/%Y %H:%M:%S")}
-    &nbsp;·&nbsp; Archivo: <code>{os.path.basename(FILEPATH)}</code>
+    <p>Maria Almenara · Seguimiento de entregas en tiempo real (Base de Datos en Nube · Supabase AQP)</p>
 </div>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# KPIs GLOBALES
+# KPIS GLOBALES
 # ─────────────────────────────────────────────
 total_prod   = len(df_resumen)
 total_req    = int(df_resumen["REQUERIMIENTO"].sum())
-total_ent    = int(df_resumen["ENTREGADO"].sum())
+total_ent    = int(df_resumen["ENTREGADO_REAL"].sum())
 total_falt   = int(df_resumen["FALTANTE"].sum())
 completos    = int((df_resumen["PCT"] >= 100).sum())
 pct_global   = round(completos / total_prod * 100, 1) if total_prod > 0 else 0
@@ -238,7 +262,6 @@ for col, color, val, lbl in kpis:
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-title">📋 Detalle por Producto</div>', unsafe_allow_html=True)
 
-# Filtros justo encima de la tabla
 estados_opciones = ["Todos", "⛔ Sin entregar", "🟡 En proceso", "✅ Completo"]
 fcol1, fcol2 = st.columns([1, 2])
 with fcol1:
@@ -246,7 +269,6 @@ with fcol1:
 with fcol2:
     buscar = st.text_input("🔍 Buscar por código o descripción", placeholder="Ej: M1020110 o BROWNIE", key="buscar")
 
-# Aplicar filtros
 df_tabla = df_resumen.copy()
 if filtro_estado != "Todos":
     df_tabla = df_tabla[df_tabla["ESTADO"].astype(str) == filtro_estado]
@@ -257,15 +279,13 @@ if buscar:
     )
     df_tabla = df_tabla[mask]
 
+df_tabla_display = df_tabla.copy()
+df_tabla_display["ENTREGADO"] = df_tabla_display["ENTREGADO_REAL"]
+
 cols_show = ["CÓDIGO", "DESCRIPCIÓN", "UMI", "REQUERIMIENTO", "ENTREGADO", "FALTANTE", "PCT", "ESTADO", "FECHA PEDIDO"]
-df_display = df_tabla[cols_show].copy()
-df_display["FECHA PEDIDO"] = df_display["FECHA PEDIDO"].dt.strftime("%d/%m/%Y")
-df_display["REQUERIMIENTO"] = df_display["REQUERIMIENTO"].apply(lambda x: f"{x:,}")
-df_display["ENTREGADO"]     = df_display["ENTREGADO"].apply(lambda x: f"{int(x):,}")
-df_display["FALTANTE"]      = df_display["FALTANTE"].apply(lambda x: f"{int(x):,}")
 
 st.dataframe(
-    df_tabla[cols_show].style
+    df_tabla_display[cols_show].style
         .map(color_pct, subset=["PCT"])
         .map(color_faltante, subset=["FALTANTE"])
         .format({
@@ -276,7 +296,7 @@ st.dataframe(
             "FECHA PEDIDO": lambda x: x.strftime("%d/%m/%Y") if hasattr(x, "strftime") else x,
         }),
     use_container_width=True,
-    height=900,
+    height=600,
 )
 
 st.caption(f"Mostrando {len(df_tabla)} de {len(df_resumen)} productos")
@@ -286,26 +306,22 @@ st.caption(f"Mostrando {len(df_tabla)} de {len(df_resumen)} productos")
 # ─────────────────────────────────────────────
 st.markdown('<div class="section-title">📅 Entregas por Día – Tabla por Producto</div>', unsafe_allow_html=True)
 
-# Construir pivot: productos del pedido × fechas de entrega
 ent_pedido = df_ent[df_ent["Número de artículo"].isin(df_ped["CÓDIGO"])].copy()
 
 if ent_pedido.empty:
     st.info("⚠️ No hay entregas registradas aún.")
 else:
-    ent_pedido["Dia"] = ent_pedido["Fecha de vencimiento"].dt.day.astype(str)
-    
-    ent_pedido["Fecha_col"] = ent_pedido["Fecha de vencimiento"].dt.strftime("%d/%m/%Y")
+    ent_pedido["Fecha_col"] = ent_pedido["Fecha_venc"].dt.strftime("%d/%m/%Y")
 
     pivot = (
         ent_pedido.groupby(["Número de artículo", "Fecha_col"])["Cantidad"]
         .sum()
         .reset_index()
     )
-    # Orden cronológico de fechas
     fechas_ordenadas = (
-        ent_pedido[["Fecha de vencimiento", "Fecha_col"]]
+        ent_pedido[["Fecha_venc", "Fecha_col"]]
         .drop_duplicates()
-        .sort_values("Fecha de vencimiento")["Fecha_col"]
+        .sort_values("Fecha_venc")["Fecha_col"]
         .tolist()
     )
     pivot_table = pivot.pivot_table(
@@ -315,17 +331,13 @@ else:
         aggfunc="sum",
         fill_value=0,
     )
-    # Reordenar columnas cronológicamente
     cols_ord = [f for f in fechas_ordenadas if f in pivot_table.columns]
     pivot_table = pivot_table[cols_ord]
 
-    # Agregar descripción como índice
     desc_map = df_ped.set_index("CÓDIGO")["DESCRIPCIÓN"].to_dict()
     pivot_table.index = [desc_map.get(c, c) for c in pivot_table.index]
     pivot_table = pivot_table.sort_index()
-    pivot_table.columns.name = "Fecha"
 
-    # Construir tabla HTML directamente
     fechas = pivot_table.columns.tolist()
     html = """
     <style>
@@ -334,9 +346,7 @@ else:
         background-color: #c0392b; color: white; font-weight: bold;
         padding: 8px 12px; text-align: center; border: 1px solid #ddd;
     }
-    .tabla-entregas th.col-prod {
-        text-align: left; min-width: 220px;
-    }
+    .tabla-entregas th.col-prod { text-align: left; min-width: 220px; }
     .tabla-entregas td.col-prod {
         padding: 7px 10px; border: 1px solid #eee;
         background: white; color: #333; font-size: 0.82rem;
@@ -349,12 +359,10 @@ else:
         background: #d4edda; color: #1a6b35; text-align: center;
         font-weight: 600; padding: 7px 10px; border: 1px solid #eee;
     }
-    .tabla-entregas tr:nth-child(even) td.col-prod { background: #f9f9f9; }
     </style>
-    <div style="overflow-x:auto; max-height:600px; overflow-y:auto;">
+    <div style="overflow-x:auto; max-height:500px; overflow-y:auto;">
     <table class="tabla-entregas">
-    <thead><tr>
-    <th class="col-prod">PRODUCTO</th>
+    <thead><tr><th class="col-prod">PRODUCTO</th>
     """
     for f in fechas:
         html += f"<th>{f}</th>"
@@ -405,7 +413,7 @@ with col_dona:
 st.markdown("---")
 st.markdown(
     "<div style='text-align:center;color:#aaa;font-size:0.8rem'>"
-    "Control de Pedidos · Maria Almenara · Generado con Streamlit"
+    "Control de Pedidos · Maria Almenara · Persistencia en Nube vía Supabase (Bucket AQP)"
     "</div>",
     unsafe_allow_html=True,
 )

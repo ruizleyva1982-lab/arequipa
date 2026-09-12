@@ -312,7 +312,7 @@ cols_show = ["CÓDIGO", "DESCRIPCIÓN", "UMI", "REQUERIMIENTO", "ENTREGADO", "FA
 @st.cache_data
 def convertir_df_a_excel(df):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Detalle_Pedidos')
     return output.getvalue()
 

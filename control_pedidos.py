@@ -99,12 +99,32 @@ def descargar_de_supabase():
         return None
 
 def subir_a_supabase(file_bytes):
-    """Guarda/Sobrescribe el Excel en Supabase Storage de forma persistente."""
-    supabase.storage.from_(BUCKET_NAME).upload(
-        path=FILE_NAME,
-        file=file_bytes,
-        file_options={"upsert": "true"}
-    )
+    """Guarda/Sobrescribe el Excel en Supabase Storage con reintentos y respaldo local."""
+    opts = {"upsert": "true", "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+    
+    # 1. Intentar subir/actualizar a Supabase con reintentos
+    for intento in range(3):
+        try:
+            try:
+                supabase.storage.from_(BUCKET_NAME).upload(path=FILE_NAME, file=file_bytes, file_options=opts)
+            except Exception:
+                supabase.storage.from_(BUCKET_NAME).update(
+                    path=FILE_NAME, 
+                    file=file_bytes, 
+                    file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+                )
+            st.toast("✅ Archivo guardado correctamente en Supabase", icon="☁️")
+            break
+        except Exception:
+            if intento == 2:
+                st.warning("⚠️ No se pudo conectar a Supabase por inestabilidad de red. Guardando copia local de respaldo.")
+    
+    # 2. Guardar copia local de respaldo
+    try:
+        with open("bd.xlsx", "wb") as f:
+            f.write(file_bytes)
+    except Exception:
+        pass
 
 # ─────────────────────────────────────────────
 # FUNCIONES DE PROCESAMIENTO

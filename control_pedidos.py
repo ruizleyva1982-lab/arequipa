@@ -304,6 +304,46 @@ df_tabla_display["ENTREGADO"] = df_tabla_display["ENTREGADO_REAL"]
 
 cols_show = ["CÓDIGO", "DESCRIPCIÓN", "UMI", "REQUERIMIENTO", "ENTREGADO", "FALTANTE", "PCT", "ESTADO", "FECHA PEDIDO"]
 
+# ... código anterior ...
+
+cols_show = ["CÓDIGO", "DESCRIPCIÓN", "UMI", "REQUERIMIENTO", "ENTREGADO", "FALTANTE", "PCT", "ESTADO", "FECHA PEDIDO"]
+
+# ⬇️ INSERTA AQUÍ LA FUNCIÓN Y EL BOTÓN DE DESCARGA ⬇️
+@st.cache_data
+def convertir_df_a_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Detalle_Pedidos')
+    return output.getvalue()
+
+excel_data = convertir_df_a_excel(df_tabla_display[cols_show])
+
+d_col1, d_col2 = st.columns([3, 1])
+with d_col2:
+    st.download_button(
+        label="📥 Descargar a Excel",
+        data=excel_data,
+        file_name=f"control_pedidos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+# ⬆️ FIN DEL BLOQUE AÑADIDO ⬆️
+
+st.dataframe(
+    df_tabla_display[cols_show].style
+        .map(color_pct, subset=["PCT"])
+        .map(color_faltante, subset=["FALTANTE"])
+        .format({
+            "REQUERIMIENTO": "{:,.0f}",
+            "ENTREGADO": "{:,.0f}",
+            "FALTANTE": "{:,.0f}",
+            "PCT": "{:.1f}%",
+            "FECHA PEDIDO": lambda x: x.strftime("%d/%m/%Y") if hasattr(x, "strftime") else x,
+        }),
+    use_container_width=True,
+    height=1300,
+)
+
 st.dataframe(
     df_tabla_display[cols_show].style
         .map(color_pct, subset=["PCT"])
